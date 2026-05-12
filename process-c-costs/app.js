@@ -163,6 +163,22 @@ app.get('/api/report', async (req, res) => {
             });
         }
 
+        // Month must be a calendar month between 1 and 12
+        if (monthNum < 1 || monthNum > 12) {
+            return res.status(400).json({
+                id: 'INVALID_MONTH',
+                message: 'month must be between 1 and 12'
+            });
+        }
+
+        // Year must be a reasonable 4-digit year
+        if (yearNum < 2000 || yearNum > 2100) {
+            return res.status(400).json({
+                id: 'INVALID_YEAR',
+                message: 'year must be between 2000 and 2100'
+            });
+        }
+
         // The user must exist in the database
         const user = await User.findOne({ id: userid });
         if (!user) {
