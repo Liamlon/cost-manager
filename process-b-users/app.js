@@ -1,5 +1,6 @@
 'use strict';
 
+// load settings from the .env file before anything else
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
@@ -10,27 +11,28 @@ const Log = require('./models/log');
 
 const app = express();
 
-// Parse incoming JSON request bodies
+// tell express to understand json that people send in requests
 app.use(express.json());
 
-// Create a Pino logger — it outputs structured JSON lines to the console
+// pino is the thing that prints log messages
 const logger = pino({ level: 'info' });
 
-// Connect to the MongoDB Atlas database using the URI stored in .env
+// connect to the cloud database using the link in .env
 mongoose.connect(process.env.MONGO_URI)
     .then(() => logger.info('Connected to MongoDB'))
     .catch((err) => logger.error(err, 'MongoDB connection error'));
 
 /*
- * Middleware: runs automatically before every HTTP request this server receives.
- * It fulfills the requirement to log every incoming request both to the console
- * (via Pino) and to the "logs" collection in MongoDB.
+ * this runs before every request that comes in.
+ * it saves a record of every request to the database so we have a full history.
+ * its like a security camera that never turns off.
  */
 app.use(async (req, res, next) => {
     try {
+        // print what request came in so we can see it
         logger.info({ method: req.method, url: req.url }, 'Request received');
 
-        // Save the request details as a new log entry in MongoDB
+        // also save it to mongodb so we have a permanent copy
         const requestLog = new Log({
             level: 'info',
             message: `${req.method} ${req.url}`,
@@ -40,16 +42,16 @@ app.use(async (req, res, next) => {
         });
         await requestLog.save();
     } catch (err) {
-        // Do not block the request if logging fails
+        // if logging broke thats fine, dont stop the request from going through
         logger.error(err, 'Failed to save request log');
     }
     next();
 });
 
-// GET /api/users — returns a list of all users in the database
+// GET /api/users - give back a list of all users in the database
 app.get('/api/users', async (req, res) => {
     try {
-        // Record that this specific endpoint was accessed
+        // write a log that says someone visited this page
         logger.info('/api/users endpoint accessed');
         const accessLog = new Log({
             level: 'info',
@@ -60,7 +62,7 @@ app.get('/api/users', async (req, res) => {
         });
         await accessLog.save();
 
-        // Retrieve all user documents from the database
+        // get every user from the database and send them all back
         const users = await User.find({});
         res.json(users);
     } catch (err) {
@@ -69,17 +71,18 @@ app.get('/api/users', async (req, res) => {
     }
 });
 
-// GET /api/users/:id — returns one user's details plus their total costs
+// GET /api/users/:id - get one specific user plus how much they spent in total
 app.get('/api/users/:id', async (req, res) => {
     try {
+        // turn the id from text into a real number
         const userId = parseInt(req.params.id);
 
-        // The id in the URL must be a valid number
+        // if the id they gave us isnt a real number, tell them
         if (isNaN(userId)) {
             return res.status(400).json({ id: 'INVALID_ID', message: 'User id must be a valid number' });
         }
 
-        // Record that this specific endpoint was accessed
+        // write a log saying someone visited this page
         logger.info({ userId }, '/api/users/:id endpoint accessed');
         const accessLog = new Log({
             level: 'info',
@@ -90,17 +93,21 @@ app.get('/api/users/:id', async (req, res) => {
         });
         await accessLog.save();
 
-        // Find the user by their custom "id" field (not MongoDB's _id)
+        // look up the user by their custom id field (not the mongodb _id)
         const user = await User.findOne({ id: userId });
+
+        // if nobody has that id, say so
         if (!user) {
             return res.status(404).json({ id: 'USER_NOT_FOUND', message: `No user found with id ${userId}` });
         }
 
-        // Add up the "sum" field of every cost document that belongs to this user
+        // find all the cost items that belong to this user
         const costs = await Cost.find({ userid: userId });
+
+        // add up all the amounts to get the grand total
         const total = costs.reduce((runningTotal, cost) => runningTotal + cost.sum, 0);
 
-        // Return only the required four fields: id, first_name, last_name, total
+        // send back only the four fields that the project requires
         res.json({
             id: user.id,
             first_name: user.first_name,
@@ -113,12 +120,12 @@ app.get('/api/users/:id', async (req, res) => {
     }
 });
 
-// POST /api/add — adds a new user to the database
+// POST /api/add - add a brand new user to the database
 app.post('/api/add', async (req, res) => {
     try {
         const { id, first_name, last_name, birthday } = req.body;
 
-        // All four fields are required — reject the request if any are missing
+        // check that they sent all four required fields, reject if anything is missing
         if (id === undefined || !first_name || !last_name || !birthday) {
             return res.status(400).json({
                 id: 'MISSING_FIELDS',
@@ -126,18 +133,18 @@ app.post('/api/add', async (req, res) => {
             });
         }
 
-        // The id field must be a valid number
+        // make sure the id they gave us is actually a number
         if (isNaN(parseInt(id))) {
             return res.status(400).json({ id: 'INVALID_ID', message: 'id must be a valid number' });
         }
 
-        // Prevent creating two users with the same id
+        // check if a user with this id already exists - we cant have two of the same
         const existingUser = await User.findOne({ id: parseInt(id) });
         if (existingUser) {
             return res.status(409).json({ id: 'USER_EXISTS', message: `A user with id ${id} already exists` });
         }
 
-        // Create the new user document and save it to MongoDB
+        // create the new user and save them to the database
         const newUser = new User({
             id: parseInt(id),
             first_name,
@@ -146,7 +153,7 @@ app.post('/api/add', async (req, res) => {
         });
         await newUser.save();
 
-        // Log the successful creation of the user
+        // write a log that the user was added successfully
         logger.info({ userId: newUser.id }, 'New user added successfully');
         const accessLog = new Log({
             level: 'info',
@@ -157,7 +164,7 @@ app.post('/api/add', async (req, res) => {
         });
         await accessLog.save();
 
-        // Return the newly created user document as JSON
+        // send back the user we just created
         res.json(newUser);
     } catch (err) {
         logger.error(err, 'Error adding user');
@@ -165,11 +172,11 @@ app.post('/api/add', async (req, res) => {
     }
 });
 
-// Only start listening for connections when this file is run directly, not during tests
+// only start the server if this file was run directly, not from a test
 if (require.main === module) {
-    const PORT = process.env.PORT || 3002;
-    app.listen(PORT, () => {
-        logger.info(`Users service running on port ${PORT}`);
+    const port = process.env.PORT || 3002;
+    app.listen(port, () => {
+        logger.info(`Users service running on port ${port}`);
     });
 }
 

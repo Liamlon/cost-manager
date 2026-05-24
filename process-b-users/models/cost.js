@@ -2,24 +2,26 @@
 
 const mongoose = require('mongoose');
 
-/* Schema for cost documents stored in the "costs" collection.
- * This model is used here only to calculate the total costs for a user
- * when the GET /api/users/:id endpoint is called.
+/*
+ * we need the cost schema here in the users process too.
+ * we use it only to calculate the total amount a user spent
+ * when someone calls GET /api/users/:id.
+ * the actual cost management happens in the costs process.
  */
 const costSchema = new mongoose.Schema({
     description: { type: String, required: true },
-    // Category must be one of the five supported values
+    // only these five categories are allowed, mongodb rejects anything else
     category: {
         type: String,
         required: true,
         enum: ['food', 'health', 'housing', 'sports', 'education']
     },
     userid: { type: Number, required: true },
-    // Sum is a floating-point number (Double in MongoDB)
+    // the amount of money, stored as a decimal number
     sum: { type: Number, required: true },
-    // Defaults to the time the cost item was received by the server
+    // if no date is given, we use the time the request arrived
     date: { type: Date, default: Date.now }
 });
 
-// Guard against "model already compiled" errors that appear during testing
+// this makes sure we dont create the Cost model twice when tests run
 module.exports = mongoose.models.Cost || mongoose.model('Cost', costSchema);

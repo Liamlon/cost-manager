@@ -2,21 +2,21 @@
 
 const mongoose = require('mongoose');
 
-// Schema for cost documents stored in the "costs" collection
+// this describes what a cost item looks like when we save it to the database
 const costSchema = new mongoose.Schema({
     description: { type: String, required: true },
-    // Category must be one of the five supported values
+    // only these 5 categories are allowed, mongodb will reject anything else automatically
     category: {
         type: String,
         required: true,
         enum: ['food', 'health', 'housing', 'sports', 'education']
     },
     userid: { type: Number, required: true },
-    // Sum is a floating-point number (Double in MongoDB)
+    // the amount of money, stored as a decimal number
     sum: { type: Number, required: true },
-    // Defaults to the time the cost item was received by the server
+    // if no date is given, we use the exact time the request arrived at the server
     date: { type: Date, default: Date.now }
 });
 
-// Guard against "model already compiled" errors that appear during testing
+// this stops the model from being created twice if the file gets loaded more than once
 module.exports = mongoose.models.Cost || mongoose.model('Cost', costSchema);

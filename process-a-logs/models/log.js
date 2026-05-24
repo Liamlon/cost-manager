@@ -2,16 +2,19 @@
 
 const mongoose = require('mongoose');
 
-// Schema for log entries - every HTTP request and endpoint access is recorded here
+// this is the shape of what a log looks like when we save it to the database
 const logSchema = new mongoose.Schema({
+    // was it a normal message (info) or did something go wrong (error)
     level: { type: String, required: true },
+    // what actually happened, like "GET /api/logs"
     message: { type: String, required: true },
-    // Defaults to the exact time the log was created
+    // if we dont give a time, it just uses right now
     timestamp: { type: Date, default: Date.now },
-    // The URL path that was accessed (e.g. /api/logs)
+    // which url path was visited, like /api/logs
     endpoint: { type: String, default: '' },
+    // was it a GET or a POST request
     method: { type: String, default: '' }
 });
 
-// Guard against "model already compiled" errors that appear during testing
+// this makes sure we dont accidentally create the Log model twice
 module.exports = mongoose.models.Log || mongoose.model('Log', logSchema);

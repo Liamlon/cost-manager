@@ -3,19 +3,20 @@
 const mongoose = require('mongoose');
 
 /*
- * Schema for pre-computed (cached) monthly reports stored in the "reports" collection.
- * This collection is the heart of the Computed Design Pattern:
- * when a report for a past month is computed for the first time, the full result
- * is stored here so that future requests can be answered instantly from this cache
- * rather than by re-querying the entire costs collection.
+ * this is where we save reports that we already calculated before.
+ * when someone asks for a report from a past month, we calculate it once
+ * and save the result here so next time we dont have to calculate it again.
+ * this is the Computed Design Pattern - calculate once, reuse forever.
+ * it works because we never allow adding costs from past months,
+ * so a saved old report will never become wrong or out of date.
  */
 const reportSchema = new mongoose.Schema({
     userid: { type: Number, required: true },
     year: { type: Number, required: true },
     month: { type: Number, required: true },
-    // The complete report JSON object is stored in the "data" field
+    // we store the whole report object here so we can just send it straight back
     data: { type: mongoose.Schema.Types.Mixed, required: true }
 });
 
-// Guard against "model already compiled" errors that appear during testing
+// stop it from being created twice when tests run
 module.exports = mongoose.models.Report || mongoose.model('Report', reportSchema);

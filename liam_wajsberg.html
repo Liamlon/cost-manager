@@ -1,0 +1,1382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cost Manager - Final Project</title>
+<style>
+  body { font-family: Arial, sans-serif; font-size: 12px; margin: 40px; color: #000; }
+  h1 { font-size: 20px; border-bottom: 2px solid #000; padding-bottom: 8px; }
+  h2 { font-size: 16px; margin-top: 30px; border-bottom: 1px solid #999; padding-bottom: 4px; }
+  h3 { font-size: 13px; margin-top: 20px; color: #333; background: #f0f0f0; padding: 4px 8px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+  td, th { border: 1px solid #ccc; padding: 6px 10px; text-align: left; }
+  th { background: #eee; }
+  pre { background: #f8f8f8; border: 1px solid #ddd; padding: 12px; font-size: 10px;
+        font-family: 'Courier New', monospace; white-space: pre-wrap; word-wrap: break-word;
+        line-height: 1.5; margin: 0; }
+  .file-block { margin-bottom: 30px; }
+  .file-name { font-weight: bold; font-size: 12px; background: #333; color: #fff;
+               padding: 4px 10px; margin-bottom: 0; }
+  a { color: #0066cc; }
+  @page { size: landscape; margin: 15mm; }
+  @media print {
+    body { margin: 0; font-size: 11px; }
+    pre { font-size: 8px; }
+    .page-break { page-break-before: always; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Cost Manager &mdash; RESTful Web Services<br>Final Project &mdash; Asynchronous Server-Side Development</h1>
+
+<h2>Team Information</h2>
+<p><strong>Team Manager:</strong> Liam Wajsberg</p>
+<table>
+  <tr><th>Name</th><th>ID</th><th>Phone</th><th>Email</th></tr>
+  <tr><td>Liam Wajsberg</td><td>302233135</td><td>054-4646744</td><td>liamwajsberg@gmail.com</td></tr>
+  <tr><td>Shira Vainer</td><td>206533184</td><td>052-6653166</td><td>shiravai18@gmail.com</td></tr>
+</table>
+
+<p><strong>Demo Video:</strong> <a href="https://youtu.be/-DsvfM8MYBk">https://youtu.be/-DsvfM8MYBk</a></p>
+
+<h2>Deployed Service URLs</h2>
+<table>
+  <tr><th>Process</th><th>Responsibility</th><th>URL</th></tr>
+  <tr><td>A &mdash; Logs</td><td>GET /api/logs</td><td>https://cost-manager-logs-w4us.onrender.com</td></tr>
+  <tr><td>B &mdash; Users</td><td>GET /api/users, GET /api/users/:id, POST /api/add</td><td>https://cost-manager-users-ldsr.onrender.com</td></tr>
+  <tr><td>C &mdash; Costs</td><td>POST /api/add, GET /api/report</td><td>https://cost-manager-costs-dznk.onrender.com</td></tr>
+  <tr><td>D &mdash; About</td><td>GET /api/about</td><td>https://cost-manager-about-8lzf.onrender.com</td></tr>
+</table>
+
+<h2>Collaborative Tools Summary</h2>
+<p>We used <strong>GitHub</strong> as our primary collaboration tool, hosting the entire project at github.com/Liamlon/cost-manager. This allowed us to share code, track all changes with commit history, and work on different parts of the project simultaneously without conflicts. We used <strong>WhatsApp</strong> for daily communication &mdash; dividing tasks, discussing design decisions, and coordinating deployment steps. GitHub gave us a clear record of every change made and by whom, while WhatsApp allowed fast, informal coordination throughout the development process.</p>
+
+<!-- ==================== SOURCE CODE ==================== -->
+<h2>Source Code</h2>
+
+<h3>Process A &mdash; Logs Service</h3>
+
+<div class="file-block">
+<p class="file-name">process-a-logs/app.js</p>
+<pre>'use strict';
+
+// load the secret settings from the .env file before anything else
+require('dotenv').config();
+const express = require('express');
+const mongoose = require('mongoose');
+const pino = require('pino');
+const Log = require('./models/log');
+
+const app = express();
+
+// this makes express understand json that gets sent to it
+app.use(express.json());
+
+// pino is used to print log messages, "info" means normal stuff not errors
+const logger = pino({ level: 'info' });
+
+// connect to the cloud database using the link stored in .env
+mongoose.connect(process.env.MONGO_URI)
+    .then(() =&gt; logger.info('Connected to MongoDB'))
+    .catch((err) =&gt; logger.error(err, 'MongoDB connection error'));
+
+/*
+ * this part runs every single time someone sends any request to this server.
+ * it saves a record to the database so we always know what happened.
+ * think of it like a diary that writes itself every time someone knocks on the door.
+ */
+app.use(async (req, res, next) =&gt; {
+    try {
+        // print to the console so we can see requests coming in
+        logger.info({ method: req.method, url: req.url }, 'Request received');
+
+        // save the request to mongodb too so we have a permanent copy
+        const requestLog = new Log({
+            level: 'info',
+            message: `${req.method} ${req.url}`,
+            timestamp: new Date(),
+            endpoint: req.url,
+            method: req.method
+        });
+        await requestLog.save();
+    } catch (err) {
+        // if saving the log failed thats ok, we still let the request go through
+        logger.error(err, 'Failed to save request log to database');
+    }
+    next();
+});
+
+// GET /api/logs - when someone wants to see all the logs, grab everything from the database
+app.get('/api/logs', async (req, res) =&gt; {
+    try {
+        // save a log saying this endpoint was visited
+        logger.info('/api/logs endpoint accessed');
+        const accessLog = new Log({
+            level: 'info',
+            message: 'GET /api/logs endpoint accessed',
+            timestamp: new Date(),
+            endpoint: '/api/logs',
+            method: 'GET'
+        });
+        await accessLog.save();
+
+        // get every single log from the database and send them all back
+        const logs = await Log.find({});
+        res.json(logs);
+    } catch (err) {
+        logger.error(err, 'Error fetching logs from database');
+        res.status(500).json({ id: 'GET_LOGS_ERROR', message: err.message });
+    }
+});
+
+// only turn on the server if this file was run directly, not during tests
+if (require.main === module) {
+    const port = process.env.PORT || 3001;
+    app.listen(port, () =&gt; {
+        logger.info(`Logs service running on port ${port}`);
+    });
+}
+
+module.exports = app;</pre>
+</div>
+
+<div class="file-block">
+<p class="file-name">process-a-logs/models/log.js</p>
+<pre>'use strict';
+
+const mongoose = require('mongoose');
+
+// this is the shape of what a log looks like when we save it to the database
+const logSchema = new mongoose.Schema({
+    // was it a normal message (info) or did something go wrong (error)
+    level: { type: String, required: true },
+    // what actually happened, like "GET /api/logs"
+    message: { type: String, required: true },
+    // if we dont give a time, it just uses right now
+    timestamp: { type: Date, default: Date.now },
+    // which url path was visited, like /api/logs
+    endpoint: { type: String, default: '' },
+    // was it a GET or a POST request
+    method: { type: String, default: '' }
+});
+
+// this makes sure we dont accidentally create the Log model twice
+module.exports = mongoose.models.Log || mongoose.model('Log', logSchema);</pre>
+</div>
+
+<div class="file-block">
+<p class="file-name">process-a-logs/tests/logs.test.js</p>
+<pre>'use strict';
+
+const { MongoMemoryServer } = require('mongodb-memory-server');
+const mongoose = require('mongoose');
+const request = require('supertest');
+
+let mongod;
+let app;
+
+// Start an in-memory MongoDB server before any tests run
+beforeAll(async () =&gt; {
+    mongod = await MongoMemoryServer.create();
+
+    // Set the URI before requiring app.js so it connects to the test database
+    process.env.MONGO_URI = mongod.getUri();
+    app = require('../app');
+
+    // Wait until the mongoose connection is fully open
+    await new Promise((resolve) =&gt; {
+        if (mongoose.connection.readyState === 1) {
+            resolve();
+        } else {
+            mongoose.connection.once('connected', resolve);
+        }
+    });
+}, 30000);
+
+// Shut down the test database after all tests are done
+afterAll(async () =&gt; {
+    await mongoose.disconnect();
+    await mongod.stop();
+});
+
+// Clear all collections before each test so tests don't affect each other
+beforeEach(async () =&gt; {
+    const collections = mongoose.connection.collections;
+    for (const key in collections) {
+        await collections[key].deleteMany({});
+    }
+});
+
+describe('GET /api/logs', () =&gt; {
+    test('should return 200 and an array', async () =&gt; {
+        const res = await request(app).get('/api/logs');
+        expect(res.status).toBe(200);
+        expect(Array.isArray(res.body)).toBe(true);
+    });
+
+    test('should create log entries for each request received', async () =&gt; {
+        // Make a first request - this creates log entries in the database
+        await request(app).get('/api/logs');
+
+        // The second request should now see those log entries
+        const res = await request(app).get('/api/logs');
+        expect(res.status).toBe(200);
+        expect(res.body.length).toBeGreaterThan(0);
+    });
+
+    test('each log entry must have level, message, and timestamp fields', async () =&gt; {
+        await request(app).get('/api/logs');
+        const res = await request(app).get('/api/logs');
+        expect(res.status).toBe(200);
+
+        if (res.body.length &gt; 0) {
+            const firstLog = res.body[0];
+            expect(firstLog).toHaveProperty('level');
+            expect(firstLog).toHaveProperty('message');
+            expect(firstLog).toHaveProperty('timestamp');
+        }
+    });
+
+    test('the log message should contain the HTTP method and URL', async () =&gt; {
+        await request(app).get('/api/logs');
+        const res = await request(app).get('/api/logs');
+        expect(res.status).toBe(200);
+
+        // Every log entry from a GET /api/logs request should mention both
+        const hasExpectedLog = res.body.some(
+            (log) =&gt; log.message.includes('GET') &amp;&amp; log.message.includes('/api/logs')
+        );
+        expect(hasExpectedLog).toBe(true);
+    });
+});</pre>
+</div>
+
+<div class="page-break"></div>
+<h3>Process B &mdash; Users Service</h3>
+
+<div class="file-block">
+<p class="file-name">process-b-users/app.js</p>
+<pre>'use strict';
+
+// load settings from the .env file before anything else
+require('dotenv').config();
+const express = require('express');
+const mongoose = require('mongoose');
+const pino = require('pino');
+const User = require('./models/user');
+const Cost = require('./models/cost');
+const Log = require('./models/log');
+
+const app = express();
+
+// tell express to understand json that people send in requests
+app.use(express.json());
+
+// pino is the thing that prints log messages
+const logger = pino({ level: 'info' });
+
+// connect to the cloud database using the link in .env
+mongoose.connect(process.env.MONGO_URI)
+    .then(() =&gt; logger.info('Connected to MongoDB'))
+    .catch((err) =&gt; logger.error(err, 'MongoDB connection error'));
+
+/*
+ * this runs before every request that comes in.
+ * it saves a record of every request to the database so we have a full history.
+ * its like a security camera that never turns off.
+ */
+app.use(async (req, res, next) =&gt; {
+    try {
+        // print what request came in so we can see it
+        logger.info({ method: req.method, url: req.url }, 'Request received');
+
+        // also save it to mongodb so we have a permanent copy
+        const requestLog = new Log({
+            level: 'info',
+            message: `${req.method} ${req.url}`,
+            timestamp: new Date(),
+            endpoint: req.url,
+            method: req.method
+        });
+        await requestLog.save();
+    } catch (err) {
+        // if logging broke thats fine, dont stop the request from going through
+        logger.error(err, 'Failed to save request log');
+    }
+    next();
+});
+
+// GET /api/users - give back a list of all users in the database
+app.get('/api/users', async (req, res) =&gt; {
+    try {
+        // write a log that says someone visited this page
+        logger.info('/api/users endpoint accessed');
+        const accessLog = new Log({
+            level: 'info',
+            message: 'GET /api/users endpoint accessed',
+            timestamp: new Date(),
+            endpoint: '/api/users',
+            method: 'GET'
+        });
+        await accessLog.save();
+
+        // get every user from the database and send them all back
+        const users = await User.find({});
+        res.json(users);
+    } catch (err) {
+        logger.error(err, 'Error fetching users');
+        res.status(500).json({ id: 'GET_USERS_ERROR', message: err.message });
+    }
+});
+
+// GET /api/users/:id - get one specific user plus how much they spent in total
+app.get('/api/users/:id', async (req, res) =&gt; {
+    try {
+        // turn the id from text into a real number
+        const userId = parseInt(req.params.id);
+
+        // if the id they gave us isnt a real number, tell them
+        if (isNaN(userId)) {
+            return res.status(400).json({ id: 'INVALID_ID', message: 'User id must be a valid number' });
+        }
+
+        // write a log saying someone visited this page
+        logger.info({ userId }, '/api/users/:id endpoint accessed');
+        const accessLog = new Log({
+            level: 'info',
+            message: `GET /api/users/${userId} endpoint accessed`,
+            timestamp: new Date(),
+            endpoint: `/api/users/${userId}`,
+            method: 'GET'
+        });
+        await accessLog.save();
+
+        // look up the user by their custom id field (not the mongodb _id)
+        const user = await User.findOne({ id: userId });
+
+        // if nobody has that id, say so
+        if (!user) {
+            return res.status(404).json({ id: 'USER_NOT_FOUND', message: `No user found with id ${userId}` });
+        }
+
+        // find all the cost items that belong to this user
+        const costs = await Cost.find({ userid: userId });
+
+        // add up all the amounts to get the grand total
+        const total = costs.reduce((runningTotal, cost) =&gt; runningTotal + cost.sum, 0);
+
+        // send back only the four fields that the project requires
+        res.json({
+            id: user.id,
+            first_name: user.first_name,
+            last_name: user.last_name,
+            total
+        });
+    } catch (err) {
+        logger.error(err, 'Error fetching user details');
+        res.status(500).json({ id: 'GET_USER_ERROR', message: err.message });
+    }
+});
+
+// POST /api/add - add a brand new user to the database
+app.post('/api/add', async (req, res) =&gt; {
+    try {
+        const { id, first_name, last_name, birthday } = req.body;
+
+        // check that they sent all four required fields, reject if anything is missing
+        if (id === undefined || !first_name || !last_name || !birthday) {
+            return res.status(400).json({
+                id: 'MISSING_FIELDS',
+                message: 'id, first_name, last_name, and birthday are all required'
+            });
+        }
+
+        // make sure the id they gave us is actually a number
+        if (isNaN(parseInt(id))) {
+            return res.status(400).json({ id: 'INVALID_ID', message: 'id must be a valid number' });
+        }
+
+        // check if a user with this id already exists - we cant have two of the same
+        const existingUser = await User.findOne({ id: parseInt(id) });
+        if (existingUser) {
+            return res.status(409).json({ id: 'USER_EXISTS', message: `A user with id ${id} already exists` });
+        }
+
+        // create the new user and save them to the database
+        const newUser = new User({
+            id: parseInt(id),
+            first_name,
+            last_name,
+            birthday: new Date(birthday)
+        });
+        await newUser.save();
+
+        // write a log that the user was added successfully
+        logger.info({ userId: newUser.id }, 'New user added successfully');
+        const accessLog = new Log({
+            level: 'info',
+            message: `POST /api/add user endpoint accessed, created user id: ${newUser.id}`,
+            timestamp: new Date(),
+            endpoint: '/api/add',
+            method: 'POST'
+        });
+        await accessLog.save();
+
+        // send back the user we just created
+        res.json(newUser);
+    } catch (err) {
+        logger.error(err, 'Error adding user');
+        res.status(500).json({ id: 'ADD_USER_ERROR', message: err.message });
+    }
+});
+
+// only start the server if this file was run directly, not from a test
+if (require.main === module) {
+    const port = process.env.PORT || 3002;
+    app.listen(port, () =&gt; {
+        logger.info(`Users service running on port ${port}`);
+    });
+}
+
+module.exports = app;</pre>
+</div>
+
+<div class="file-block">
+<p class="file-name">process-b-users/models/user.js</p>
+<pre>'use strict';
+
+const mongoose = require('mongoose');
+
+/*
+ * this is what a user looks like when we save them to the database.
+ * important thing - id and _id are two totally different things.
+ * _id is the one mongodb creates automatically when you save something.
+ * id is the custom number we give each user ourselves, like 123123.
+ */
+const userSchema = new mongoose.Schema({
+    // our own custom number id, like 123123 - not the mongodb one
+    id: { type: Number, required: true, unique: true },
+    first_name: { type: String, required: true },
+    last_name: { type: String, required: true },
+    birthday: { type: Date, required: true }
+});
+
+// this makes sure we dont create the User model twice when tests run
+module.exports = mongoose.models.User || mongoose.model('User', userSchema);</pre>
+</div>
+
+<div class="file-block">
+<p class="file-name">process-b-users/models/cost.js</p>
+<pre>'use strict';
+
+const mongoose = require('mongoose');
+
+/*
+ * we need the cost schema here in the users process too.
+ * we use it only to calculate the total amount a user spent
+ * when someone calls GET /api/users/:id.
+ * the actual cost management happens in the costs process.
+ */
+const costSchema = new mongoose.Schema({
+    description: { type: String, required: true },
+    // only these five categories are allowed, mongodb rejects anything else
+    category: {
+        type: String,
+        required: true,
+        enum: ['food', 'health', 'housing', 'sports', 'education']
+    },
+    userid: { type: Number, required: true },
+    // the amount of money, stored as a decimal number
+    sum: { type: Number, required: true },
+    // if no date is given, we use the time the request arrived
+    date: { type: Date, default: Date.now }
+});
+
+// this makes sure we dont create the Cost model twice when tests run
+module.exports = mongoose.models.Cost || mongoose.model('Cost', costSchema);</pre>
+</div>
+
+<div class="file-block">
+<p class="file-name">process-b-users/models/log.js</p>
+<pre>'use strict';
+
+const mongoose = require('mongoose');
+
+// this is the shape of what we save every time a request comes in
+const logSchema = new mongoose.Schema({
+    // was it normal info or an error
+    level: { type: String, required: true },
+    // describes what happened
+    message: { type: String, required: true },
+    // defaults to right now if nothing is given
+    timestamp: { type: Date, default: Date.now },
+    // which url was hit, like /api/users
+    endpoint: { type: String, default: '' },
+    // GET or POST
+    method: { type: String, default: '' }
+});
+
+// this makes sure we dont create the Log model twice when tests run
+module.exports = mongoose.models.Log || mongoose.model('Log', logSchema);</pre>
+</div>
+
+<div class="file-block">
+<p class="file-name">process-b-users/tests/users.test.js</p>
+<pre>'use strict';
+
+const { MongoMemoryServer } = require('mongodb-memory-server');
+const mongoose = require('mongoose');
+const request = require('supertest');
+
+let mongod;
+let app;
+
+// Start an in-memory MongoDB server before any tests run
+beforeAll(async () =&gt; {
+    mongod = await MongoMemoryServer.create();
+
+    // Set the URI before requiring app.js so it connects to the test database
+    process.env.MONGO_URI = mongod.getUri();
+    app = require('../app');
+
+    // Wait until the mongoose connection is fully open
+    await new Promise((resolve) =&gt; {
+        if (mongoose.connection.readyState === 1) { resolve(); }
+        else { mongoose.connection.once('connected', resolve); }
+    });
+}, 30000);
+
+// Shut down the test database after all tests are done
+afterAll(async () =&gt; {
+    await mongoose.disconnect();
+    await mongod.stop();
+});
+
+// Clear all collections before each test so tests don't affect each other
+beforeEach(async () =&gt; {
+    const collections = mongoose.connection.collections;
+    for (const key in collections) { await collections[key].deleteMany({}); }
+});
+
+describe('POST /api/add (add user)', () =&gt; {
+    test('should add a new user and return it as JSON', async () =&gt; {
+        const res = await request(app).post('/api/add').send({
+            id: 1001, first_name: 'Alice', last_name: 'Smith', birthday: '1995-06-15'
+        });
+        expect(res.status).toBe(200);
+        expect(res.body.id).toBe(1001);
+        expect(res.body.first_name).toBe('Alice');
+        expect(res.body.last_name).toBe('Smith');
+    });
+
+    test('should return 400 when required fields are missing', async () =&gt; {
+        // Only id is sent - the other three required fields are missing
+        const res = await request(app).post('/api/add').send({ id: 1002 });
+        expect(res.status).toBe(400);
+        expect(res.body).toHaveProperty('id');
+        expect(res.body).toHaveProperty('message');
+    });
+
+    test('should return 400 when id is not a number', async () =&gt; {
+        const res = await request(app).post('/api/add').send({
+            id: 'not-a-number', first_name: 'Bob', last_name: 'Jones', birthday: '1990-01-01'
+        });
+        expect(res.status).toBe(400);
+    });
+
+    test('should return 409 when a user with the same id already exists', async () =&gt; {
+        // Add the user the first time - this should succeed
+        await request(app).post('/api/add').send({
+            id: 1003, first_name: 'Carol', last_name: 'White', birthday: '1988-03-20'
+        });
+
+        // Trying to add the same id again should fail with 409 Conflict
+        const res = await request(app).post('/api/add').send({
+            id: 1003, first_name: 'Carol2', last_name: 'White2', birthday: '1988-03-20'
+        });
+        expect(res.status).toBe(409);
+    });
+});
+
+describe('GET /api/users', () =&gt; {
+    test('should return 200 and an array', async () =&gt; {
+        const res = await request(app).get('/api/users');
+        expect(res.status).toBe(200);
+        expect(Array.isArray(res.body)).toBe(true);
+    });
+
+    test('should include a user that was previously added', async () =&gt; {
+        await request(app).post('/api/add').send({
+            id: 2001, first_name: 'Dave', last_name: 'Black', birthday: '1985-07-10'
+        });
+        const res = await request(app).get('/api/users');
+        expect(res.status).toBe(200);
+
+        // The user we just added should appear in the list
+        const found = res.body.find((u) =&gt; u.id === 2001);
+        expect(found).toBeDefined();
+        expect(found.first_name).toBe('Dave');
+    });
+});
+
+describe('GET /api/users/:id', () =&gt; {
+    test('should return the user with id, first_name, last_name, and total', async () =&gt; {
+        await request(app).post('/api/add').send({
+            id: 3001, first_name: 'Eve', last_name: 'Green', birthday: '1992-11-05'
+        });
+        const res = await request(app).get('/api/users/3001');
+        expect(res.status).toBe(200);
+        expect(res.body.id).toBe(3001);
+        expect(res.body.first_name).toBe('Eve');
+        // Total costs should be 0 because no costs have been added
+        expect(res.body.total).toBe(0);
+    });
+
+    test('should return 404 when the user does not exist', async () =&gt; {
+        const res = await request(app).get('/api/users/99999');
+        expect(res.status).toBe(404);
+        expect(res.body).toHaveProperty('id');
+        expect(res.body).toHaveProperty('message');
+    });
+
+    test('should return 400 when the id in the URL is not a number', async () =&gt; {
+        const res = await request(app).get('/api/users/not-a-number');
+        expect(res.status).toBe(400);
+    });
+});</pre>
+</div>
+
+<div class="page-break"></div>
+<h3>Process C &mdash; Costs Service</h3>
+
+<div class="file-block">
+<p class="file-name">process-c-costs/app.js</p>
+<pre>'use strict';
+
+// load settings from .env before anything else
+require('dotenv').config();
+const express = require('express');
+const mongoose = require('mongoose');
+const pino = require('pino');
+const Cost = require('./models/cost');
+const User = require('./models/user');
+const Log = require('./models/log');
+const Report = require('./models/report');
+
+const app = express();
+
+// tell express how to read json from request bodies
+app.use(express.json());
+
+// these are the only 5 categories we allow for costs
+const validCategories = ['food', 'health', 'housing', 'sports', 'education'];
+
+// pino prints log messages to the console
+const logger = pino({ level: 'info' });
+
+// connect to mongodb using the url from .env
+mongoose.connect(process.env.MONGO_URI)
+    .then(() =&gt; logger.info('Connected to MongoDB'))
+    .catch((err) =&gt; logger.error(err, 'MongoDB connection error'));
+
+/*
+ * this runs before every request that comes in.
+ * it saves a record to the database every single time.
+ * its like the server writing in its diary for every visitor.
+ */
+app.use(async (req, res, next) =&gt; {
+    try {
+        // print the request to the console
+        logger.info({ method: req.method, url: req.url }, 'Request received');
+
+        // save the request to mongodb too
+        const requestLog = new Log({
+            level: 'info',
+            message: `${req.method} ${req.url}`,
+            timestamp: new Date(),
+            endpoint: req.url,
+            method: req.method
+        });
+        await requestLog.save();
+    } catch (err) {
+        // if logging failed, thats ok, we still let the request through
+        logger.error(err, 'Failed to save request log');
+    }
+    next();
+});
+
+// POST /api/add - add a new cost item for a user
+app.post('/api/add', async (req, res) =&gt; {
+    try {
+        const { description, category, userid, sum, date } = req.body;
+
+        // all four main fields must be there, reject if something is missing
+        if (!description || !category || userid === undefined || sum === undefined) {
+            return res.status(400).json({
+                id: 'MISSING_FIELDS',
+                message: 'description, category, userid, and sum are all required'
+            });
+        }
+
+        // check that the category is one of the five allowed ones
+        if (!validCategories.includes(category)) {
+            return res.status(400).json({
+                id: 'INVALID_CATEGORY',
+                message: `category must be one of: ${validCategories.join(', ')}`
+            });
+        }
+
+        // userid needs to be a real number
+        if (isNaN(parseInt(userid))) {
+            return res.status(400).json({ id: 'INVALID_USERID', message: 'userid must be a valid number' });
+        }
+
+        // make sure the user actually exists before we add a cost for them
+        const user = await User.findOne({ id: parseInt(userid) });
+        if (!user) {
+            return res.status(404).json({ id: 'USER_NOT_FOUND', message: `No user found with id ${userid}` });
+        }
+
+        // figure out the date for this cost - defaults to right now if not given
+        let costDate = new Date();
+        if (date) {
+            costDate = new Date(date);
+
+            // if the date string they gave us is not a real date, tell them
+            if (isNaN(costDate.getTime())) {
+                return res.status(400).json({ id: 'INVALID_DATE', message: 'The date value provided is not valid' });
+            }
+
+            // we dont allow costs from past months because it would mess up the cached reports
+            const now = new Date();
+            const costYear = costDate.getFullYear();
+            const costMonth = costDate.getMonth() + 1;
+            const currentYear = now.getFullYear();
+            const currentMonth = now.getMonth() + 1;
+
+            if (costYear &lt; currentYear || (costYear === currentYear &amp;&amp; costMonth &lt; currentMonth)) {
+                return res.status(400).json({
+                    id: 'PAST_DATE',
+                    message: 'Cannot add cost items with dates from past months'
+                });
+            }
+        }
+
+        // create the cost and save it to the database
+        const newCost = new Cost({
+            description,
+            category,
+            userid: parseInt(userid),
+            sum: parseFloat(sum),
+            date: costDate
+        });
+        await newCost.save();
+
+        // write a log that a cost was added successfully
+        logger.info({ costId: newCost._id }, 'New cost item added successfully');
+        const accessLog = new Log({
+            level: 'info',
+            message: `POST /api/add cost endpoint accessed, created cost id: ${newCost._id}`,
+            timestamp: new Date(),
+            endpoint: '/api/add',
+            method: 'POST'
+        });
+        await accessLog.save();
+
+        // send back the cost we just saved
+        res.json(newCost);
+    } catch (err) {
+        logger.error(err, 'Error adding cost item');
+        res.status(500).json({ id: 'ADD_COST_ERROR', message: err.message });
+    }
+});
+
+// GET /api/report - get a monthly spending report for a specific user
+app.get('/api/report', async (req, res) =&gt; {
+    try {
+        const { id, year, month } = req.query;
+
+        // we need all three to make the report
+        if (!id || !year || !month) {
+            return res.status(400).json({
+                id: 'MISSING_PARAMS',
+                message: 'Query parameters id, year, and month are all required'
+            });
+        }
+
+        const userid = parseInt(id);
+        const yearNum = parseInt(year);
+        const monthNum = parseInt(month);
+
+        // all three must be real numbers
+        if (isNaN(userid) || isNaN(yearNum) || isNaN(monthNum)) {
+            return res.status(400).json({
+                id: 'INVALID_PARAMS',
+                message: 'id, year, and month must all be valid numbers'
+            });
+        }
+
+        // month has to be between 1 and 12 obviously
+        if (monthNum &lt; 1 || monthNum &gt; 12) {
+            return res.status(400).json({
+                id: 'INVALID_MONTH',
+                message: 'month must be between 1 and 12'
+            });
+        }
+
+        // year needs to look like a real year
+        if (yearNum &lt; 2000 || yearNum &gt; 2100) {
+            return res.status(400).json({
+                id: 'INVALID_YEAR',
+                message: 'year must be between 2000 and 2100'
+            });
+        }
+
+        // the user has to exist before we can make a report for them
+        const user = await User.findOne({ id: userid });
+        if (!user) {
+            return res.status(404).json({ id: 'USER_NOT_FOUND', message: `No user found with id ${userid}` });
+        }
+
+        // save a log that someone asked for a report
+        logger.info({ userid, year: yearNum, month: monthNum }, '/api/report endpoint accessed');
+        const accessLog = new Log({
+            level: 'info',
+            message: `GET /api/report endpoint accessed for user ${userid}`,
+            timestamp: new Date(),
+            endpoint: '/api/report',
+            method: 'GET'
+        });
+        await accessLog.save();
+
+        // check if the month they asked about is already in the past
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth() + 1;
+        const isPastMonth = yearNum &lt; currentYear || (yearNum === currentYear &amp;&amp; monthNum &lt; currentMonth);
+
+        /*
+         * Computed Design Pattern:
+         * when someone asks for a report from a month that already ended, we first check
+         * if we already calculated and saved this report before. if yes, we just send back
+         * the saved one - no need to go through the whole database again.
+         * if we dont have it saved yet, we calculate it fresh, save it, then send it back.
+         * this works because we never allow adding costs from past months - so a saved
+         * past-month report will never become wrong or out of date.
+         */
+        if (isPastMonth) {
+            // check the cache first - maybe we already have this one saved
+            const cachedReport = await Report.findOne({ userid, year: yearNum, month: monthNum });
+            if (cachedReport) {
+                // we have it, just send it straight back without touching the costs collection
+                return res.json(cachedReport.data);
+            }
+        }
+
+        // fetch all the cost items for this user in the requested month and year
+        const costs = await Cost.find({
+            userid,
+            $expr: {
+                $and: [
+                    { $eq: [{ $year: '$date' }, yearNum] },
+                    { $eq: [{ $month: '$date' }, monthNum] }
+                ]
+            }
+        });
+
+        // start with all 5 categories as empty arrays, then fill in the ones that have costs
+        const grouped = {};
+        validCategories.forEach((cat) =&gt; { grouped[cat] = []; });
+
+        costs.forEach((cost) =&gt; {
+            grouped[cost.category].push({
+                sum: cost.sum,
+                description: cost.description,
+                // just the day number like 17, not the full date
+                day: new Date(cost.date).getDate()
+            });
+        });
+
+        // format it as an array where each item is one category with its costs
+        const formattedCosts = validCategories.map((cat) =&gt; ({ [cat]: grouped[cat] }));
+
+        const report = {
+            userid,
+            year: yearNum,
+            month: monthNum,
+            costs: formattedCosts
+        };
+
+        // if this is a past month, save the report to the cache so next time is faster
+        if (isPastMonth) {
+            const computedReport = new Report({ userid, year: yearNum, month: monthNum, data: report });
+            await computedReport.save();
+        }
+
+        res.json(report);
+    } catch (err) {
+        logger.error(err, 'Error generating monthly report');
+        res.status(500).json({ id: 'REPORT_ERROR', message: err.message });
+    }
+});
+
+// only start listening if we ran this file directly, not from tests
+if (require.main === module) {
+    const port = process.env.PORT || 3003;
+    app.listen(port, () =&gt; {
+        logger.info(`Costs service running on port ${port}`);
+    });
+}
+
+module.exports = app;</pre>
+</div>
+
+<div class="file-block">
+<p class="file-name">process-c-costs/models/cost.js</p>
+<pre>'use strict';
+
+const mongoose = require('mongoose');
+
+// this describes what a cost item looks like when we save it to the database
+const costSchema = new mongoose.Schema({
+    description: { type: String, required: true },
+    // only these 5 categories are allowed, mongodb will reject anything else automatically
+    category: {
+        type: String,
+        required: true,
+        enum: ['food', 'health', 'housing', 'sports', 'education']
+    },
+    userid: { type: Number, required: true },
+    // the amount of money, stored as a decimal number
+    sum: { type: Number, required: true },
+    // if no date is given, we use the exact time the request arrived at the server
+    date: { type: Date, default: Date.now }
+});
+
+// this stops the model from being created twice if the file gets loaded more than once
+module.exports = mongoose.models.Cost || mongoose.model('Cost', costSchema);</pre>
+</div>
+
+<div class="file-block">
+<p class="file-name">process-c-costs/models/log.js</p>
+<pre>'use strict';
+
+const mongoose = require('mongoose');
+
+// this is the shape of a log entry saved every time someone makes a request
+const logSchema = new mongoose.Schema({
+    // info or error
+    level: { type: String, required: true },
+    // what happened, like "GET /api/add"
+    message: { type: String, required: true },
+    // defaults to right now if not given
+    timestamp: { type: Date, default: Date.now },
+    // the url that was visited, like /api/add or /api/report
+    endpoint: { type: String, default: '' },
+    // GET or POST
+    method: { type: String, default: '' }
+});
+
+// stop it from being created twice when tests run
+module.exports = mongoose.models.Log || mongoose.model('Log', logSchema);</pre>
+</div>
+
+<div class="file-block">
+<p class="file-name">process-c-costs/models/report.js</p>
+<pre>'use strict';
+
+const mongoose = require('mongoose');
+
+/*
+ * this is where we save reports that we already calculated before.
+ * when someone asks for a report from a past month, we calculate it once
+ * and save the result here so next time we dont have to calculate it again.
+ * this is the Computed Design Pattern - calculate once, reuse forever.
+ * it works because we never allow adding costs from past months,
+ * so a saved old report will never become wrong or out of date.
+ */
+const reportSchema = new mongoose.Schema({
+    userid: { type: Number, required: true },
+    year: { type: Number, required: true },
+    month: { type: Number, required: true },
+    // we store the whole report object here so we can just send it straight back
+    data: { type: mongoose.Schema.Types.Mixed, required: true }
+});
+
+// stop it from being created twice when tests run
+module.exports = mongoose.models.Report || mongoose.model('Report', reportSchema);</pre>
+</div>
+
+<div class="file-block">
+<p class="file-name">process-c-costs/models/user.js</p>
+<pre>'use strict';
+
+const mongoose = require('mongoose');
+
+/*
+ * we need the user schema here in the costs process too,
+ * so we can check if a user actually exists before we let someone
+ * add a cost for them. both processes share the same mongodb database,
+ * so we read from the same users collection.
+ */
+const userSchema = new mongoose.Schema({
+    // our own custom number id, different from mongodb's automatic _id
+    id: { type: Number, required: true, unique: true },
+    first_name: { type: String, required: true },
+    last_name: { type: String, required: true },
+    birthday: { type: Date, required: true }
+});
+
+// stop it from being created twice when tests run
+module.exports = mongoose.models.User || mongoose.model('User', userSchema);</pre>
+</div>
+
+<div class="file-block">
+<p class="file-name">process-c-costs/tests/costs.test.js</p>
+<pre>'use strict';
+
+const { MongoMemoryServer } = require('mongodb-memory-server');
+const mongoose = require('mongoose');
+const request = require('supertest');
+
+let mongod;
+let app;
+
+// Start an in-memory MongoDB server before any tests run
+beforeAll(async () =&gt; {
+    mongod = await MongoMemoryServer.create();
+
+    // Set the URI before requiring app.js so it connects to the test database
+    process.env.MONGO_URI = mongod.getUri();
+    app = require('../app');
+
+    // Wait until the mongoose connection is fully open
+    await new Promise((resolve) =&gt; {
+        if (mongoose.connection.readyState === 1) { resolve(); }
+        else { mongoose.connection.once('connected', resolve); }
+    });
+}, 30000);
+
+// Shut down the test database after all tests are done
+afterAll(async () =&gt; {
+    await mongoose.disconnect();
+    await mongod.stop();
+});
+
+// Clear all collections before each test so tests don't affect each other
+beforeEach(async () =&gt; {
+    const collections = mongoose.connection.collections;
+    for (const key in collections) { await collections[key].deleteMany({}); }
+});
+
+// Helper: insert a test user directly into MongoDB (bypasses the users API)
+async function createTestUser(id) {
+    const User = require('../models/user');
+    return User.create({ id, first_name: 'Test', last_name: 'User', birthday: new Date('1990-01-01') });
+}
+
+describe('POST /api/add (add cost)', () =&gt; {
+    test('should add a cost item and return it as JSON', async () =&gt; {
+        await createTestUser(5001);
+        const res = await request(app).post('/api/add').send({
+            userid: 5001, description: 'milk 9', category: 'food', sum: 8
+        });
+        expect(res.status).toBe(200);
+        expect(res.body.userid).toBe(5001);
+        expect(res.body.description).toBe('milk 9');
+        expect(res.body.category).toBe('food');
+        expect(res.body.sum).toBe(8);
+    });
+
+    test('should return 400 when required fields are missing', async () =&gt; {
+        // Only userid and description are provided - category and sum are missing
+        const res = await request(app).post('/api/add').send({ userid: 5001, description: 'coffee' });
+        expect(res.status).toBe(400);
+        expect(res.body).toHaveProperty('id');
+        expect(res.body).toHaveProperty('message');
+    });
+
+    test('should return 400 for a category that is not in the allowed list', async () =&gt; {
+        await createTestUser(5002);
+        const res = await request(app).post('/api/add').send({
+            userid: 5002, description: 'something', category: 'entertainment', sum: 10
+        });
+        expect(res.status).toBe(400);
+    });
+
+    test('should return 404 when the userid does not match any user', async () =&gt; {
+        // No user with id 99999 exists in the database
+        const res = await request(app).post('/api/add').send({
+            userid: 99999, description: 'coffee', category: 'food', sum: 5
+        });
+        expect(res.status).toBe(404);
+    });
+
+    test('should return 400 when userid is not a number', async () =&gt; {
+        const res = await request(app).post('/api/add').send({
+            userid: 'not-a-number', description: 'coffee', category: 'food', sum: 5
+        });
+        expect(res.status).toBe(400);
+    });
+});
+
+describe('GET /api/report', () =&gt; {
+    test('should return a report that includes all five categories', async () =&gt; {
+        await createTestUser(6001);
+        const now = new Date();
+        const res = await request(app).get(
+            `/api/report?id=6001&amp;year=${now.getFullYear()}&amp;month=${now.getMonth() + 1}`
+        );
+        expect(res.status).toBe(200);
+        expect(res.body.userid).toBe(6001);
+        expect(Array.isArray(res.body.costs)).toBe(true);
+
+        // All five categories must be present even if their arrays are empty
+        const categoryNames = res.body.costs.map((entry) =&gt; Object.keys(entry)[0]);
+        expect(categoryNames).toContain('food');
+        expect(categoryNames).toContain('health');
+        expect(categoryNames).toContain('housing');
+        expect(categoryNames).toContain('sports');
+        expect(categoryNames).toContain('education');
+    });
+
+    test('should include a cost item that was added for the current month', async () =&gt; {
+        await createTestUser(6002);
+
+        // Add a cost item (it will be dated to right now by default)
+        await request(app).post('/api/add').send({
+            userid: 6002, description: 'milk 9', category: 'food', sum: 8
+        });
+
+        const now = new Date();
+        const res = await request(app).get(
+            `/api/report?id=6002&amp;year=${now.getFullYear()}&amp;month=${now.getMonth() + 1}`
+        );
+        expect(res.status).toBe(200);
+
+        // The food category should contain exactly the item we just added
+        const foodEntry = res.body.costs.find((entry) =&gt; entry.food !== undefined);
+        expect(foodEntry.food).toHaveLength(1);
+        expect(foodEntry.food[0].description).toBe('milk 9');
+        expect(foodEntry.food[0].sum).toBe(8);
+        expect(foodEntry.food[0]).toHaveProperty('day');
+    });
+
+    test('should return 400 when query parameters are missing', async () =&gt; {
+        // Only "id" is provided - "year" and "month" are missing
+        const res = await request(app).get('/api/report?id=6001');
+        expect(res.status).toBe(400);
+    });
+
+    test('should return 404 when the user does not exist', async () =&gt; {
+        const res = await request(app).get('/api/report?id=99999&amp;year=2026&amp;month=4');
+        expect(res.status).toBe(404);
+    });
+
+    test('should return 400 when query parameters are not valid numbers', async () =&gt; {
+        const res = await request(app).get('/api/report?id=abc&amp;year=2026&amp;month=4');
+        expect(res.status).toBe(400);
+    });
+});</pre>
+</div>
+
+<div class="page-break"></div>
+<h3>Process D &mdash; About Service</h3>
+
+<div class="file-block">
+<p class="file-name">process-d-about/app.js</p>
+<pre>'use strict';
+
+// load settings from .env first
+require('dotenv').config();
+const express = require('express');
+const mongoose = require('mongoose');
+const pino = require('pino');
+const Log = require('./models/log');
+
+const app = express();
+
+// tell express to understand json
+app.use(express.json());
+
+// pino for printing log messages
+const logger = pino({ level: 'info' });
+
+// connect to the cloud database using the link in .env
+mongoose.connect(process.env.MONGO_URI)
+    .then(() =&gt; logger.info('Connected to MongoDB'))
+    .catch((err) =&gt; logger.error(err, 'MongoDB connection error'));
+
+/*
+ * this runs before every request.
+ * it saves a record of every visit to the database.
+ * every process does this - its required by the project.
+ */
+app.use(async (req, res, next) =&gt; {
+    try {
+        // print it to the console
+        logger.info({ method: req.method, url: req.url }, 'Request received');
+
+        // save it to mongodb
+        const requestLog = new Log({
+            level: 'info',
+            message: `${req.method} ${req.url}`,
+            timestamp: new Date(),
+            endpoint: req.url,
+            method: req.method
+        });
+        await requestLog.save();
+    } catch (err) {
+        // if logging broke, thats fine, keep going
+        logger.error(err, 'Failed to save request log');
+    }
+    next();
+});
+
+// GET /api/about - gives back the names of the people who made this project
+app.get('/api/about', async (req, res) =&gt; {
+    try {
+        // save a log that someone asked about the team
+        logger.info('/api/about endpoint accessed');
+        const accessLog = new Log({
+            level: 'info',
+            message: 'GET /api/about endpoint accessed',
+            timestamp: new Date(),
+            endpoint: '/api/about',
+            method: 'GET'
+        });
+        await accessLog.save();
+
+        // we read the names from .env instead of the database
+        // the project says we cant store developer names in the db, so we put them in .env instead
+        const members = [];
+        let i = 1;
+        while (process.env[`TEAM_MEMBER_${i}_FIRST_NAME`]) {
+            members.push({
+                first_name: process.env[`TEAM_MEMBER_${i}_FIRST_NAME`],
+                last_name: process.env[`TEAM_MEMBER_${i}_LAST_NAME`]
+            });
+            i++;
+        }
+
+        res.json(members);
+    } catch (err) {
+        logger.error(err, 'Error fetching team info');
+        res.status(500).json({ id: 'GET_ABOUT_ERROR', message: err.message });
+    }
+});
+
+// only start the server if this file was run directly
+if (require.main === module) {
+    const port = process.env.PORT || 3004;
+    app.listen(port, () =&gt; {
+        logger.info(`About service running on port ${port}`);
+    });
+}
+
+module.exports = app;</pre>
+</div>
+
+<div class="file-block">
+<p class="file-name">process-d-about/models/log.js</p>
+<pre>'use strict';
+
+const mongoose = require('mongoose');
+
+// this describes what a log entry looks like in the database
+const logSchema = new mongoose.Schema({
+    // info or error
+    level: { type: String, required: true },
+    // what happened
+    message: { type: String, required: true },
+    // defaults to right now if not given
+    timestamp: { type: Date, default: Date.now },
+    // the url that was accessed, like /api/about
+    endpoint: { type: String, default: '' },
+    // GET or POST
+    method: { type: String, default: '' }
+});
+
+// stop the model from being created twice
+module.exports = mongoose.models.Log || mongoose.model('Log', logSchema);</pre>
+</div>
+
+<div class="file-block">
+<p class="file-name">process-d-about/tests/about.test.js</p>
+<pre>'use strict';
+
+const { MongoMemoryServer } = require('mongodb-memory-server');
+const mongoose = require('mongoose');
+const request = require('supertest');
+
+let mongod;
+let app;
+
+// Start an in-memory MongoDB server before any tests run
+beforeAll(async () =&gt; {
+    mongod = await MongoMemoryServer.create();
+
+    // Set the URI before requiring app.js so it connects to the test database
+    process.env.MONGO_URI = mongod.getUri();
+
+    // Set team member names in the environment so the endpoint has something to return
+    process.env.TEAM_MEMBER_1_FIRST_NAME = 'John';
+    process.env.TEAM_MEMBER_1_LAST_NAME = 'Doe';
+    process.env.TEAM_MEMBER_2_FIRST_NAME = 'Jane';
+    process.env.TEAM_MEMBER_2_LAST_NAME = 'Smith';
+
+    app = require('../app');
+
+    // Wait until the mongoose connection is fully open
+    await new Promise((resolve) =&gt; {
+        if (mongoose.connection.readyState === 1) { resolve(); }
+        else { mongoose.connection.once('connected', resolve); }
+    });
+}, 30000);
+
+// Shut down the test database after all tests are done
+afterAll(async () =&gt; {
+    await mongoose.disconnect();
+    await mongod.stop();
+});
+
+describe('GET /api/about', () =&gt; {
+    test('should return 200 and an array', async () =&gt; {
+        const res = await request(app).get('/api/about');
+        expect(res.status).toBe(200);
+        expect(Array.isArray(res.body)).toBe(true);
+    });
+
+    test('should return one entry per team member', async () =&gt; {
+        const res = await request(app).get('/api/about');
+        expect(res.status).toBe(200);
+        // We set two team members in beforeAll, so we expect two entries
+        expect(res.body.length).toBe(2);
+    });
+
+    test('each member must have first_name and last_name and nothing else', async () =&gt; {
+        const res = await request(app).get('/api/about');
+        expect(res.status).toBe(200);
+
+        res.body.forEach((member) =&gt; {
+            expect(member).toHaveProperty('first_name');
+            expect(member).toHaveProperty('last_name');
+            // The response must not include any extra fields like id or birthday
+            expect(Object.keys(member)).toEqual(['first_name', 'last_name']);
+        });
+    });
+
+    test('names should match the values set in environment variables', async () =&gt; {
+        const res = await request(app).get('/api/about');
+        expect(res.status).toBe(200);
+        expect(res.body[0].first_name).toBe('John');
+        expect(res.body[0].last_name).toBe('Doe');
+        expect(res.body[1].first_name).toBe('Jane');
+        expect(res.body[1].last_name).toBe('Smith');
+    });
+});</pre>
+</div>
+
+</body>
+</html>

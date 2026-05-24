@@ -1,5 +1,6 @@
 'use strict';
 
+// load the secret settings from the .env file before anything else
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
@@ -8,28 +9,28 @@ const Log = require('./models/log');
 
 const app = express();
 
-// Parse incoming JSON request bodies
+// this makes express understand json that gets sent to it
 app.use(express.json());
 
-// Create a Pino logger — it outputs structured JSON lines to the console
+// pino is used to print log messages, "info" means normal stuff not errors
 const logger = pino({ level: 'info' });
 
-// Connect to the MongoDB Atlas database using the URI stored in .env
+// connect to the cloud database using the link stored in .env
 mongoose.connect(process.env.MONGO_URI)
     .then(() => logger.info('Connected to MongoDB'))
     .catch((err) => logger.error(err, 'MongoDB connection error'));
 
 /*
- * Middleware: runs automatically before every HTTP request this server receives.
- * It fulfills the requirement to log every incoming request both to the console
- * (via Pino) and to the "logs" collection in MongoDB.
+ * this part runs every single time someone sends any request to this server.
+ * it saves a record to the database so we always know what happened.
+ * think of it like a diary that writes itself every time someone knocks on the door.
  */
 app.use(async (req, res, next) => {
     try {
-        // Log the incoming request to the console
+        // print to the console so we can see requests coming in
         logger.info({ method: req.method, url: req.url }, 'Request received');
 
-        // Save the request details as a new log entry in MongoDB
+        // save the request to mongodb too so we have a permanent copy
         const requestLog = new Log({
             level: 'info',
             message: `${req.method} ${req.url}`,
@@ -39,16 +40,16 @@ app.use(async (req, res, next) => {
         });
         await requestLog.save();
     } catch (err) {
-        // If logging fails, do not stop the request — just print the error
+        // if saving the log failed thats ok, we still let the request go through
         logger.error(err, 'Failed to save request log to database');
     }
     next();
 });
 
-// GET /api/logs — retrieves all log entries from the database
+// GET /api/logs - when someone wants to see all the logs, grab everything from the database
 app.get('/api/logs', async (req, res) => {
     try {
-        // Record that this specific endpoint was accessed (a second log entry per request)
+        // save a log saying this endpoint was visited
         logger.info('/api/logs endpoint accessed');
         const accessLog = new Log({
             level: 'info',
@@ -59,7 +60,7 @@ app.get('/api/logs', async (req, res) => {
         });
         await accessLog.save();
 
-        // Retrieve every log document from MongoDB and return them as JSON
+        // get every single log from the database and send them all back
         const logs = await Log.find({});
         res.json(logs);
     } catch (err) {
@@ -68,11 +69,11 @@ app.get('/api/logs', async (req, res) => {
     }
 });
 
-// Only start listening for connections when this file is run directly, not during tests
+// only turn on the server if this file was run directly, not during tests
 if (require.main === module) {
-    const PORT = process.env.PORT || 3001;
-    app.listen(PORT, () => {
-        logger.info(`Logs service running on port ${PORT}`);
+    const port = process.env.PORT || 3001;
+    app.listen(port, () => {
+        logger.info(`Logs service running on port ${port}`);
     });
 }
 
